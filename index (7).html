@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>King County Land Value Map - IDW Interpolation</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #0a0f1a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        
+        .container { display: flex; flex-direction: column; height: 100vh; }
+        
+        header {
+            background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid rgba(99, 179, 237, 0.15);
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #63b3ed 0%, #4fd1c5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle { font-size: 0.85rem; color: #718096; }
+        
+        .controls { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+        .control-group { display: flex; align-items: center; gap: 0.5rem; }
+        label { font-size: 0.8rem; color: #a0aec0; font-weight: 500; }
+        
+        select, input {
+            background: #1a202c;
+            border: 1px solid #2d3748;
+            color: #e2e8f0;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%);
+            color: white;
+            border: none;
+            padding: 0.6rem 1.25rem;
+            border-radius: 6px;
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        
+        button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(49, 130, 206, 0.4); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        .upload-section {
+            background: #111827;
+            border: 2px dashed #2d3748;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .upload-section.dragover { border-color: #63b3ed; background: rgba(99, 179, 237, 0.05); }
+        .upload-section.has-files { border-color: #48bb78; border-style: solid; }
+        
+        .upload-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .upload-text { color: #a0aec0; margin-bottom: 1rem; }
+        .upload-text strong { color: #63b3ed; }
+        
+        .file-input-wrapper { position: relative; display: inline-block; }
+        .file-input-wrapper input[type="file"] {
+            position: absolute; left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer;
+        }
+        
+        .file-list { margin-top: 1rem; text-align: left; }
+        .file-item {
+            padding: 0.3rem 0;
+            font-size: 0.8rem;
+            color: #48bb78;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .file-item::before { content: '✓ '; }
+        
+        .main-content { flex: 1; display: flex; position: relative; }
+        #map { flex: 1; background: #0d1117; }
+        
+        .sidebar {
+            width: 300px;
+            background: #111827;
+            border-left: 1px solid rgba(99, 179, 237, 0.1);
+            padding: 1.25rem;
+            overflow-y: auto;
+        }
+        
+        .legend { margin-bottom: 1.5rem; }
+        .legend h3, .stats h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: #63b3ed;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .legend-gradient { height: 18px; border-radius: 4px; margin-bottom: 0.5rem; }
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: #a0aec0;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #1f2937;
+            font-size: 0.85rem;
+        }
+        .stat-label { color: #9ca3af; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: #4fd1c5; }
+        
+        .status-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #1a202c;
+            padding: 0.75rem 2rem;
+            border-top: 1px solid #2d3748;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            z-index: 1000;
+        }
+        
+        .status-indicator { width: 10px; height: 10px; border-radius: 50%; background: #718096; }
+        .status-indicator.loading { background: #f6ad55; animation: pulse 1.5s infinite; }
+        .status-indicator.ready { background: #48bb78; }
+        .status-indicator.error { background: #fc8181; }
+        
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        
+        .status-text { font-size: 0.85rem; color: #a0aec0; }
+        
+        .progress-bar { flex: 1; max-width: 300px; height: 6px; background: #2d3748; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #63b3ed, #4fd1c5); width: 0%; transition: width 0.3s ease; }
+        
+        .info-panel {
+            background: #1f2937;
+            border-radius: 8px;
+            padding: 0.85rem;
+            margin-top: 1rem;
+            font-size: 0.8rem;
+        }
+        .info-panel h4 { font-size: 0.75rem; color: #9ca3af; margin-bottom: 0.5rem; text-transform: uppercase; }
+        .info-panel p { color: #d1d5db; line-height: 1.4; }
+        .info-panel code {
+            background: #374151;
+            padding: 0.1rem 0.3rem;
+            border-radius: 3px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: #fbbf24;
+        }
+        
+        .instructions {
+            background: rgba(99, 179, 237, 0.1);
+            border: 1px solid rgba(99, 179, 237, 0.2);
+            border-radius: 8px;
+            padding: 0.85rem;
+            margin-bottom: 1rem;
+            font-size: 0.8rem;
+        }
+        .instructions ol { margin-left: 1.25rem; color: #a0aec0; }
+        .instructions li { margin-bottom: 0.4rem; }
+        .instructions a { color: #63b3ed; text-decoration: none; }
+        
+        @media (max-width: 900px) { .sidebar { display: none; } }
+        
+        .fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(26, 32, 44, 0.9);
+            border: 1px solid #2d3748;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        
+        .fullscreen-btn:hover {
+            background: rgba(45, 55, 72, 0.95);
+            border-color: #63b3ed;
+        }
+        
+        .container.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 9999;
+        }
+        
+        .container.fullscreen header {
+            display: none;
+        }
+        
+        .container.fullscreen .sidebar {
+            display: none;
+        }
+        
+        .container.fullscreen .status-bar {
+            display: none;
+        }
+        
+        .container.fullscreen .main-content {
+            height: 100vh;
+        }
+        
+        .container.fullscreen #map {
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div>
+                    <h1>King County Land Value Map</h1>
+                    <p class="subtitle">Appraised Land Value per Square Foot — IDW Interpolation</p>
+                </div>
+                <div class="controls" id="controlsSection">
+                    <div class="control-group">
+                        <label for="gridRes">Grid:</label>
+                        <select id="gridRes">
+                            <option value="300">300×300</option>
+                            <option value="500">500×500</option>
+                            <option value="750" selected>750×750</option>
+                            <option value="1000">1000×1000</option>
+                            <option value="1500">1500×1500</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="searchRadius">Detail:</label>
+                        <select id="searchRadius">
+                            <option value="0.008">Ultra High</option>
+                            <option value="0.012" selected>Very High</option>
+                            <option value="0.02">High</option>
+                            <option value="0.03">Medium</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="power">Power:</label>
+                        <select id="power">
+                            <option value="1">1 (smooth)</option>
+                            <option value="2">2</option>
+                            <option value="3" selected>3 (sharp)</option>
+                            <option value="4">4 (very sharp)</option>
+                        </select>
+                    </div>
+                    <button id="generateBtn" onclick="generateMap()">Regenerate</button>
+                </div>
+            </div>
+            
+            <div class="upload-section" id="uploadSection">
+                <div class="upload-icon">📁</div>
+                <p class="upload-text">
+                    <strong>Data will auto-load</strong> if parcels.csv is in the repo<br>
+                    Or upload a CSV file manually
+                </p>
+                <div class="file-input-wrapper">
+                    <button>Choose CSV File</button>
+                    <input type="file" id="fileInput" accept=".csv">
+                </div>
+                <div class="file-list" id="fileList"></div>
+            </div>
+            
+            <div class="instructions">
+                <strong>Get the CSV:</strong>
+                <ol>
+                    <li>Go to <a href="https://gis-kingcounty.opendata.arcgis.com/datasets/kingcounty::parcels-for-king-county-with-address-with-property-information-parcel-address-area/explore" target="_blank">King County Parcel Data</a></li>
+                    <li>Click <strong>Download</strong> → Select <strong>CSV</strong></li>
+                    <li>Upload the CSV here</li>
+                </ol>
+            </div>
+        </header>
+        
+        <div class="main-content">
+            <div id="map">
+                <button class="fullscreen-btn" id="fullscreenBtn" onclick="toggleFullscreen()">
+                    <span id="fsIcon">⛶</span>
+                    <span id="fsText">Fullscreen</span>
+                </button>
+            </div>
+            <div class="sidebar">
+                <div class="legend">
+                    <h3>Land Value ($/sqft)</h3>
+                    <div class="legend-gradient" id="legendGradient"></div>
+                    <div class="legend-labels">
+                        <span id="minVal">$0</span>
+                        <span id="maxVal">$500+</span>
+                    </div>
+                </div>
+                
+                <div class="stats">
+                    <h3>Statistics</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">CSV Rows</span>
+                        <span class="stat-value" id="totalParcels">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Valid Parcels</span>
+                        <span class="stat-value" id="parcelCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Skipped</span>
+                        <span class="stat-value" id="skippedCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Min $/sqft</span>
+                        <span class="stat-value" id="minValue">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Max $/sqft</span>
+                        <span class="stat-value" id="maxValue">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Median</span>
+                        <span class="stat-value" id="medianValue">-</span>
+                    </div>
+                </div>
+                
+                <div class="info-panel" id="colInfo" style="display:none;">
+                    <h4>Detected Columns</h4>
+                    <p id="colList"></p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span class="status-text" id="statusText">Upload CSV to begin</span>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map', { center: [47.5, -122.0], zoom: 10 });
+        
+        // Base dark map (no labels)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+            attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+        }).addTo(map);
+        
+        // Create pane for IDW layer
+        map.createPane('idwPane');
+        map.getPane('idwPane').style.zIndex = 400;
+        
+        // Create pane for water mask (above IDW)
+        map.createPane('waterPane');
+        map.getPane('waterPane').style.zIndex = 450;
+        
+        // Create pane for labels (on very top)
+        map.createPane('labelPane');
+        map.getPane('labelPane').style.zIndex = 500;
+        
+        const labelsLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            pane: 'labelPane'
+        }).addTo(map);
+        
+        // Water mask layer - loaded from Overpass API
+        let waterGeoJsonLayer = null;
+        
+        async function loadWaterMask() {
+            try {
+                updateStatus('Loading water mask from OpenStreetMap...', 'loading', 0);
+                
+                // Query for major water bodies by name and all water features
+                const query = `
+                    [out:json][timeout:120];
+                    (
+                        // Major named water bodies
+                        relation["name"="Puget Sound"];
+                        relation["name"="Lake Washington"];
+                        relation["name"="Lake Sammamish"];
+                        relation["name"="Lake Union"];
+                        relation["name"="Green Lake"];
+                        relation["name"="Lake Youngs"];
+                        relation["name"="Lake Tapps"];
+                        relation["name"="Lake Meridian"];
+                        relation["name"="Lake Desire"];
+                        relation["name"="Lake Kathleen"];
+                        relation["name"="Phantom Lake"];
+                        relation["name"="Pine Lake"];
+                        relation["name"="Beaver Lake"];
+                        relation["name"="Spring Lake"];
+                        relation["name"="Shadow Lake"];
+                        relation["name"="Lake Wilderness"];
+                        relation["name"="Lake Sawyer"];
+                        relation["name"="Lake Morton"];
+                        relation["name"="Shilshole Bay"];
+                        relation["name"="Elliott Bay"];
+                        relation["name"="Commencement Bay"];
+                        relation["name"="Possession Sound"];
+                        
+                        // All water ways and areas in the region
+                        way["natural"="water"](47.0,-122.8,47.9,-121.0);
+                        relation["natural"="water"](47.0,-122.8,47.9,-121.0);
+                        way["natural"="bay"](47.0,-122.8,47.9,-121.0);
+                        relation["natural"="bay"](47.0,-122.8,47.9,-121.0);
+                        way["water"](47.0,-122.8,47.9,-121.0);
+                        relation["water"](47.0,-122.8,47.9,-121.0);
+                    );
+                    out geom;
+                `;
+                
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: 'data=' + encodeURIComponent(query),
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                });
+                
+                const data = await response.json();
+                
+                // Convert Overpass response to GeoJSON polygons
+                const features = [];
+                
+                for (const el of data.elements) {
+                    // Handle ways (simple polygons)
+                    if (el.type === 'way' && el.geometry && el.geometry.length > 2) {
+                        const coords = el.geometry.map(p => [p.lon, p.lat]);
+                        if (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1]) {
+                            coords.push([...coords[0]]);
+                        }
+                        features.push({
+                            type: 'Feature',
+                            properties: { name: el.tags?.name || '' },
+                            geometry: { type: 'Polygon', coordinates: [coords] }
+                        });
+                    }
+                    
+                    // Handle relations (complex polygons like large lakes)
+                    if (el.type === 'relation' && el.members) {
+                        // Collect outer ways
+                        const outerWays = [];
+                        
+                        for (const member of el.members) {
+                            if (member.type === 'way' && member.geometry && member.geometry.length > 1) {
+                                const coords = member.geometry.map(p => [p.lon, p.lat]);
+                                if (member.role === 'outer' || member.role === '' || !member.role) {
+                                    outerWays.push(coords);
+                                }
+                            }
+                        }
+                        
+                        // Try to merge connected ways into polygons
+                        const polygons = mergeWaysIntoPolygons(outerWays);
+                        
+                        for (const poly of polygons) {
+                            if (poly.length > 2) {
+                                // Close if needed
+                                if (poly[0][0] !== poly[poly.length-1][0] || poly[0][1] !== poly[poly.length-1][1]) {
+                                    poly.push([...poly[0]]);
+                                }
+                                features.push({
+                                    type: 'Feature',
+                                    properties: { name: el.tags?.name || '' },
+                                    geometry: { type: 'Polygon', coordinates: [poly] }
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                console.log(`Loaded ${features.length} water polygons from OSM`);
+                
+                if (features.length > 0) {
+                    waterGeoJsonLayer = L.geoJSON({ type: 'FeatureCollection', features }, {
+                        pane: 'waterPane',
+                        style: {
+                            fillColor: '#0d1117',
+                            fillOpacity: 1,
+                            color: '#0d1117',
+                            weight: 0
+                        }
+                    }).addTo(map);
+                }
+                
+                updateStatus('Water mask loaded. Upload CSV to begin.', 'ready', 0);
+                
+            } catch (err) {
+                console.warn('Could not load water mask:', err);
+                updateStatus('Upload CSV to begin (water mask unavailable)', 'ready', 0);
+            }
+        }
+        
+        // Merge connected way segments into closed polygons
+        function mergeWaysIntoPolygons(ways) {
+            if (ways.length === 0) return [];
+            
+            const polygons = [];
+            const used = new Set();
+            
+            for (let i = 0; i < ways.length; i++) {
+                if (used.has(i)) continue;
+                
+                let current = [...ways[i]];
+                used.add(i);
+                
+                let changed = true;
+                while (changed) {
+                    changed = false;
+                    
+                    for (let j = 0; j < ways.length; j++) {
+                        if (used.has(j)) continue;
+                        
+                        const way = ways[j];
+                        const currentStart = current[0];
+                        const currentEnd = current[current.length - 1];
+                        const wayStart = way[0];
+                        const wayEnd = way[way.length - 1];
+                        
+                        const tolerance = 0.0001;
+                        
+                        // Check if way connects to end of current
+                        if (Math.abs(currentEnd[0] - wayStart[0]) < tolerance && 
+                            Math.abs(currentEnd[1] - wayStart[1]) < tolerance) {
+                            current = current.concat(way.slice(1));
+                            used.add(j);
+                            changed = true;
+                        }
+                        // Check if reversed way connects to end
+                        else if (Math.abs(currentEnd[0] - wayEnd[0]) < tolerance && 
+                                 Math.abs(currentEnd[1] - wayEnd[1]) < tolerance) {
+                            current = current.concat(way.slice(0, -1).reverse());
+                            used.add(j);
+                            changed = true;
+                        }
+                        // Check if way connects to start of current
+                        else if (Math.abs(currentStart[0] - wayEnd[0]) < tolerance && 
+                                 Math.abs(currentStart[1] - wayEnd[1]) < tolerance) {
+                            current = way.slice(0, -1).concat(current);
+                            used.add(j);
+                            changed = true;
+                        }
+                        // Check if reversed way connects to start
+                        else if (Math.abs(currentStart[0] - wayStart[0]) < tolerance && 
+                                 Math.abs(currentStart[1] - wayStart[1]) < tolerance) {
+                            current = way.slice(1).reverse().concat(current);
+                            used.add(j);
+                            changed = true;
+                        }
+                    }
+                }
+                
+                polygons.push(current);
+            }
+            
+            return polygons;
+        }
+        
+        loadWaterMask();
+        
+        // Fullscreen toggle
+        function toggleFullscreen() {
+            const container = document.querySelector('.container');
+            const btn = document.getElementById('fullscreenBtn');
+            const icon = document.getElementById('fsIcon');
+            const text = document.getElementById('fsText');
+            
+            container.classList.toggle('fullscreen');
+            
+            if (container.classList.contains('fullscreen')) {
+                icon.textContent = '✕';
+                text.textContent = 'Exit';
+                // Also try native fullscreen
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen();
+                }
+            } else {
+                icon.textContent = '⛶';
+                text.textContent = 'Fullscreen';
+                if (document.exitFullscreen && document.fullscreenElement) {
+                    document.exitFullscreen();
+                }
+            }
+            
+            // Resize map after toggle
+            setTimeout(() => map.invalidateSize(), 100);
+        }
+        
+        // Handle Escape key to exit fullscreen
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const container = document.querySelector('.container');
+                if (container.classList.contains('fullscreen')) {
+                    toggleFullscreen();
+                }
+            }
+        });
+        
+        // Sync with native fullscreen exit
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                const container = document.querySelector('.container');
+                if (container.classList.contains('fullscreen')) {
+                    container.classList.remove('fullscreen');
+                    document.getElementById('fsIcon').textContent = '⛶';
+                    document.getElementById('fsText').textContent = 'Fullscreen';
+                    setTimeout(() => map.invalidateSize(), 100);
+                }
+            }
+        });
+        
+        let heatLayer = null;
+        let markersLayer = null;
+        let parcelData = [];
+        
+        const uploadSection = document.getElementById('uploadSection');
+        const fileInput = document.getElementById('fileInput');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => {
+            uploadSection.addEventListener(e, ev => { ev.preventDefault(); ev.stopPropagation(); });
+        });
+        ['dragenter', 'dragover'].forEach(e => uploadSection.addEventListener(e, () => uploadSection.classList.add('dragover')));
+        ['dragleave', 'drop'].forEach(e => uploadSection.addEventListener(e, () => uploadSection.classList.remove('dragover')));
+        uploadSection.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+        fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+        
+        // Auto-load CSV from same directory
+        async function autoLoadCSV() {
+            try {
+                updateStatus('Loading parcel data...', 'loading', 5);
+                
+                // Hide upload section for public site
+                uploadSection.style.display = 'none';
+                document.querySelector('.instructions').style.display = 'none';
+                
+                // Try to fetch parcels.csv from same directory
+                const response = await fetch('parcels.csv');
+                
+                if (!response.ok) {
+                    throw new Error('parcels.csv not found');
+                }
+                
+                const text = await response.text();
+                await parseCSV(text);
+                
+                // Auto-generate map after loading
+                if (parcelData.length > 0) {
+                    generateMap();
+                }
+                
+            } catch (err) {
+                console.log('Auto-load failed:', err.message);
+                // Show upload section as fallback
+                uploadSection.style.display = 'block';
+                document.querySelector('.instructions').style.display = 'block';
+                updateStatus('Upload CSV to begin', 'ready', 0);
+            }
+        }
+        
+        // Try auto-load on page load
+        autoLoadCSV();
+        
+        async function handleFile(file) {
+            if (!file) return;
+            
+            document.getElementById('fileList').innerHTML = `<div class="file-item">${file.name} (${(file.size/1024/1024).toFixed(1)} MB)</div>`;
+            uploadSection.classList.add('has-files');
+            
+            updateStatus('Reading file...', 'loading', 5);
+            
+            try {
+                const text = await file.text();
+                await parseCSV(text);
+            } catch (err) {
+                updateStatus('Error: ' + err.message, 'error', 0);
+                console.error(err);
+            }
+        }
+        
+        async function parseCSV(text) {
+            updateStatus('Parsing CSV...', 'loading', 10);
+            await sleep(50);
+            
+            const lines = text.split('\n');
+            const headerLine = lines[0];
+            const headers = parseCSVLine(headerLine).map(h => h.trim().toUpperCase().replace(/"/g, ''));
+            
+            console.log('=== CSV PARSING DEBUG ===');
+            console.log('Total lines:', lines.length);
+            console.log('Headers:', headers);
+            
+            // Find columns
+            const latIdx = findCol(headers, ['LAT', 'LATITUDE', 'Y', 'POINT_Y']);
+            const lonIdx = findCol(headers, ['LON', 'LONG', 'LONGITUDE', 'X', 'POINT_X']);
+            const valIdx = findCol(headers, ['APPRLNDVAL', 'APPR_LNDVAL', 'LANDVALUE', 'LAND_VALUE', 'LANDVAL']);
+            const sqftIdx = findCol(headers, ['LOTSQFT', 'LOT_SQFT', 'SQFT', 'SQFTLOT']);
+            const cityIdx = findCol(headers, ['CTYNAME', 'CITY', 'CITYNAME']);
+            
+            console.log('Column indices:', { latIdx, lonIdx, valIdx, sqftIdx, cityIdx });
+            
+            // Show in UI
+            document.getElementById('colInfo').style.display = 'block';
+            document.getElementById('colList').innerHTML = `
+                LAT: ${latIdx >= 0 ? '✓ ' + headers[latIdx] : '❌'}<br>
+                LON: ${lonIdx >= 0 ? '✓ ' + headers[lonIdx] : '❌'}<br>
+                Value: ${valIdx >= 0 ? '✓ ' + headers[valIdx] : '❌'}<br>
+                SqFt: ${sqftIdx >= 0 ? '✓ ' + headers[sqftIdx] : '(none)'}
+            `;
+            
+            if (latIdx < 0 || lonIdx < 0 || valIdx < 0) {
+                updateStatus('Missing required columns! Check sidebar.', 'error', 0);
+                alert('Missing columns!\n\nLAT: ' + (latIdx >= 0 ? 'Found' : 'MISSING') + 
+                      '\nLON: ' + (lonIdx >= 0 ? 'Found' : 'MISSING') + 
+                      '\nValue: ' + (valIdx >= 0 ? 'Found' : 'MISSING') +
+                      '\n\nAll columns: ' + headers.join(', '));
+                return;
+            }
+            
+            document.getElementById('totalParcels').textContent = (lines.length - 1).toLocaleString();
+            
+            // Parse ALL rows - no limit
+            parcelData = [];
+            let skipped = { noCoord: 0, noVal: 0, outlier: 0 };
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line || !line.trim()) continue;
+                
+                const cols = parseCSVLine(line);
+                
+                const lat = parseFloat(cols[latIdx]);
+                const lon = parseFloat(cols[lonIdx]);
+                const val = parseFloat(cols[valIdx]);
+                let sqft = sqftIdx >= 0 ? parseFloat(cols[sqftIdx]) : 0;
+                if (!sqft || sqft <= 0) sqft = 1;
+                
+                const city = cityIdx >= 0 ? (cols[cityIdx] || '').replace(/"/g, '') : '';
+                
+                // Validate coordinates for King County area
+                if (isNaN(lat) || isNaN(lon) || lat < 46.5 || lat > 48.5 || lon < -123 || lon > -120) {
+                    skipped.noCoord++;
+                    continue;
+                }
+                
+                if (isNaN(val) || val <= 0) {
+                    skipped.noVal++;
+                    continue;
+                }
+                
+                const perSqft = val / sqft;
+                
+                if (perSqft <= 0 || perSqft > 100000) {
+                    skipped.outlier++;
+                    continue;
+                }
+                
+                parcelData.push({ lat, lon, value: val, sqft, valuePerSqft: perSqft, city });
+                
+                // Progress update every 50k rows
+                if (i % 50000 === 0) {
+                    updateStatus(`Parsing... ${parcelData.length.toLocaleString()} parcels`, 'loading', 10 + (i/lines.length)*80);
+                    await sleep(0);
+                }
+            }
+            
+            const totalSkipped = skipped.noCoord + skipped.noVal + skipped.outlier;
+            
+            console.log('=== PARSING COMPLETE ===');
+            console.log('Valid parcels:', parcelData.length);
+            console.log('Skipped:', skipped);
+            
+            document.getElementById('parcelCount').textContent = parcelData.length.toLocaleString();
+            document.getElementById('skippedCount').textContent = totalSkipped.toLocaleString();
+            
+            if (parcelData.length === 0) {
+                updateStatus('No valid parcels found!', 'error', 0);
+                alert(`No valid parcels!\n\nSkipped:\n- No coordinates: ${skipped.noCoord}\n- No value: ${skipped.noVal}\n- Outlier: ${skipped.outlier}`);
+                return;
+            }
+            
+            updateStatus(`Loaded ${parcelData.length.toLocaleString()} parcels. Generating map...`, 'ready', 100);
+        }
+        
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (c === '"') inQuotes = !inQuotes;
+                else if (c === ',' && !inQuotes) { result.push(current); current = ''; }
+                else current += c;
+            }
+            result.push(current);
+            return result;
+        }
+        
+        function findCol(headers, names) {
+            for (const n of names) {
+                const idx = headers.indexOf(n);
+                if (idx >= 0) return idx;
+            }
+            return -1;
+        }
+        
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+        
+        function updateStatus(text, state, progress) {
+            document.getElementById('statusText').textContent = text;
+            document.getElementById('statusIndicator').className = 'status-indicator ' + state;
+            if (progress !== null) document.getElementById('progressFill').style.width = progress + '%';
+        }
+        
+        function getColor(value, min, max) {
+            const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
+            // Original color scale: blue to red
+            const stops = [
+                [0.0, 13, 42, 94],      // dark blue
+                [0.2, 34, 94, 168],     // blue
+                [0.4, 65, 182, 196],    // cyan
+                [0.6, 127, 205, 187],   // teal
+                [0.75, 255, 237, 160],  // yellow
+                [0.9, 254, 178, 76],    // orange
+                [1.0, 240, 59, 32]      // red
+            ];
+            let i = 0;
+            while (i < stops.length - 1 && t > stops[i + 1][0]) i++;
+            const [p1, r1, g1, b1] = stops[i];
+            const [p2, r2, g2, b2] = stops[Math.min(i + 1, stops.length - 1)];
+            const f = p2 === p1 ? 0 : (t - p1) / (p2 - p1);
+            return {
+                r: Math.round(r1 + f * (r2 - r1)),
+                g: Math.round(g1 + f * (g2 - g1)),
+                b: Math.round(b1 + f * (b2 - b1))
+            };
+        }
+        
+        // Extended color function: p5-p95 uses ORIGINAL scale, above p95 extends to pink
+        function getColorExtended(value, p5, p95, p999) {
+            if (value <= p95) {
+                // Use original color scale for p5-p95 (blue to red)
+                return getColor(value, p5, p95);
+            } else {
+                // Extend beyond red into pink for values above p95
+                const t = Math.min(1, (value - p95) / (p999 - p95));
+                const stops = [
+                    [0.0, 240, 59, 32],     // red (p95)
+                    [0.4, 220, 40, 120],    // magenta
+                    [0.7, 255, 100, 255],   // bright pink
+                    [1.0, 255, 200, 255]    // light pink
+                ];
+                let i = 0;
+                while (i < stops.length - 1 && t > stops[i + 1][0]) i++;
+                const [pos1, r1, g1, b1] = stops[i];
+                const [pos2, r2, g2, b2] = stops[Math.min(i + 1, stops.length - 1)];
+                const f = pos2 === pos1 ? 0 : (t - pos1) / (pos2 - pos1);
+                return {
+                    r: Math.round(r1 + f * (r2 - r1)),
+                    g: Math.round(g1 + f * (g2 - g1)),
+                    b: Math.round(b1 + f * (b2 - b1))
+                };
+            }
+        }
+        
+        async function generateMap() {
+            if (!parcelData.length) return;
+            
+            document.getElementById('generateBtn').textContent = 'Generating...';
+            updateStatus('Generating map...', 'loading', 0);
+            
+            const gridRes = parseInt(document.getElementById('gridRes').value);
+            const power = parseFloat(document.getElementById('power').value);
+            
+            // Stats - p5-p95 for main scale, p999 for ultra-high extension
+            const values = parcelData.map(p => p.valuePerSqft).sort((a, b) => a - b);
+            const p5 = values[Math.floor(values.length * 0.05)];
+            const p95 = values[Math.floor(values.length * 0.95)];
+            const p999 = values[Math.floor(values.length * 0.999)];
+            const median = values[Math.floor(values.length * 0.5)];
+            
+            document.getElementById('minValue').textContent = '$' + p5.toFixed(2);
+            document.getElementById('maxValue').textContent = '$' + p999.toFixed(2);
+            document.getElementById('medianValue').textContent = '$' + median.toFixed(2);
+            document.getElementById('minVal').textContent = '$' + p5.toFixed(0);
+            document.getElementById('maxVal').textContent = '$' + p999.toFixed(0);
+            
+            // Legend - original scale (p5-p95) plus pink extension
+            const grad = [];
+            // p5 to p95: original blue-to-red
+            for (let i = 0; i <= 8; i++) {
+                const val = p5 + (p95 - p5) * i / 8;
+                const c = getColorExtended(val, p5, p95, p999);
+                grad.push(`rgb(${c.r},${c.g},${c.b})`);
+            }
+            // p95 to p999: red-to-pink extension
+            for (let i = 1; i <= 3; i++) {
+                const val = p95 + (p999 - p95) * i / 3;
+                const c = getColorExtended(val, p5, p95, p999);
+                grad.push(`rgb(${c.r},${c.g},${c.b})`);
+            }
+            document.getElementById('legendGradient').style.background = `linear-gradient(to right, ${grad.join(',')})`;
+            
+            // Bounds
+            let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+            for (const p of parcelData) {
+                if (p.lat < minLat) minLat = p.lat;
+                if (p.lat > maxLat) maxLat = p.lat;
+                if (p.lon < minLon) minLon = p.lon;
+                if (p.lon > maxLon) maxLon = p.lon;
+            }
+            minLat -= 0.01; maxLat += 0.01; minLon -= 0.01; maxLon += 0.01;
+            
+            const latStep = (maxLat - minLat) / gridRes;
+            const lonStep = (maxLon - minLon) / gridRes;
+            
+            // Spatial index with finer cells
+            updateStatus('Building spatial index...', 'loading', 5);
+            await sleep(10);
+            
+            const searchRadius = parseFloat(document.getElementById('searchRadius').value);
+            const cellSize = searchRadius / 3; // Finer cells for better locality
+            const index = new Map();
+            for (const p of parcelData) {
+                const key = `${Math.floor(p.lon / cellSize)},${Math.floor(p.lat / cellSize)}`;
+                if (!index.has(key)) index.set(key, []);
+                index.get(key).push(p);
+            }
+            
+            // Clear old layers
+            if (heatLayer) map.removeLayer(heatLayer);
+            if (markersLayer) map.removeLayer(markersLayer);
+            
+            // IDW
+            const canvas = document.createElement('canvas');
+            canvas.width = gridRes;
+            canvas.height = gridRes;
+            const ctx = canvas.getContext('2d');
+            const imgData = ctx.createImageData(gridRes, gridRes);
+            
+            const cellRadius = Math.ceil(searchRadius / cellSize);
+            
+            for (let y = 0; y < gridRes; y++) {
+                for (let x = 0; x < gridRes; x++) {
+                    const lat = maxLat - (y + 0.5) * latStep;
+                    const lon = minLon + (x + 0.5) * lonStep;
+                    
+                    const cx = Math.floor(lon / cellSize);
+                    const cy = Math.floor(lat / cellSize);
+                    
+                    let wSum = 0, vSum = 0;
+                    let nearestDist = Infinity;
+                    let pointCount = 0;
+                    
+                    for (let dx = -cellRadius; dx <= cellRadius; dx++) {
+                        for (let dy = -cellRadius; dy <= cellRadius; dy++) {
+                            const cell = index.get(`${cx + dx},${cy + dy}`);
+                            if (!cell) continue;
+                            
+                            for (const p of cell) {
+                                const d = Math.sqrt((p.lat - lat) ** 2 + (p.lon - lon) ** 2);
+                                if (d < searchRadius) {
+                                    const w = d < 0.0001 ? 1e10 : 1 / (d ** power);
+                                    wSum += w;
+                                    vSum += w * p.valuePerSqft;
+                                    pointCount++;
+                                    if (d < nearestDist) nearestDist = d;
+                                }
+                            }
+                        }
+                    }
+                    
+                    const i = (y * gridRes + x) * 4;
+                    
+                    // Only color if we have nearby data points - leave water/empty areas transparent
+                    // Require at least 1 point within a tight radius to show color
+                    const maxDistForColor = searchRadius * 0.7;
+                    
+                    if (wSum > 0 && nearestDist < maxDistForColor && pointCount >= 1) {
+                        const val = vSum / wSum;
+                        const c = getColorExtended(val, p5, p95, p999);
+                        imgData.data[i] = c.r;
+                        imgData.data[i + 1] = c.g;
+                        imgData.data[i + 2] = c.b;
+                        // More solid alpha, slight fade at edges
+                        const alpha = nearestDist < maxDistForColor * 0.6 ? 240 : 
+                                     Math.round(240 * (1 - (nearestDist - maxDistForColor * 0.6) / (maxDistForColor * 0.4)));
+                        imgData.data[i + 3] = alpha;
+                    } else {
+                        // Transparent - no data here (water, etc)
+                        imgData.data[i] = 0;
+                        imgData.data[i + 1] = 0;
+                        imgData.data[i + 2] = 0;
+                        imgData.data[i + 3] = 0;
+                    }
+                }
+                
+                if (y % 10 === 0) {
+                    updateStatus(`IDW: ${Math.round(y / gridRes * 100)}%`, 'loading', 10 + (y / gridRes) * 85);
+                    await sleep(0);
+                }
+            }
+            
+            ctx.putImageData(imgData, 0, 0);
+            
+            heatLayer = L.imageOverlay(canvas.toDataURL(), [[minLat, minLon], [maxLat, maxLon]], { 
+                opacity: 0.9,
+                pane: 'idwPane'
+            }).addTo(map);
+            map.fitBounds([[minLat, minLon], [maxLat, maxLon]]);
+            
+            // Markers - show many for detail
+            markersLayer = L.layerGroup().addTo(map);
+            const skip = Math.max(1, Math.floor(parcelData.length / 30000));
+            
+            for (let i = 0; i < parcelData.length; i += skip) {
+                const p = parcelData[i];
+                const c = getColorExtended(p.valuePerSqft, p5, p95, p999);
+                L.circleMarker([p.lat, p.lon], {
+                    radius: 2,
+                    fillColor: `rgb(${c.r},${c.g},${c.b})`,
+                    fillOpacity: 0.9,
+                    stroke: false
+                }).bindPopup(`<b>$${p.valuePerSqft.toFixed(2)}/sqft</b><br>Total: $${p.value.toLocaleString()}<br>Lot: ${p.sqft.toLocaleString()} sqft${p.city ? '<br>' + p.city : ''}`).addTo(markersLayer);
+            }
+            
+            updateStatus(`Complete! ${parcelData.length.toLocaleString()} parcels mapped.`, 'ready', 100);
+            document.getElementById('generateBtn').textContent = 'Regenerate';
+        }
+        
+        // Init gradient
+        const defGrad = [];
+        for (let i = 0; i <= 10; i++) {
+            const c = getColor(i / 10, 0, 1);
+            defGrad.push(`rgb(${c.r},${c.g},${c.b})`);
+        }
+        document.getElementById('legendGradient').style.background = `linear-gradient(to right, ${defGrad.join(',')})`;
+    </script>
+</body>
+</html>
