@@ -297,8 +297,8 @@
             <div class="upload-section" id="uploadSection">
                 <div class="upload-icon">📁</div>
                 <p class="upload-text">
-                    <strong>Upload CSV file</strong><br>
-                    All parcels will be loaded (no sampling)
+                    <strong>Data will auto-load</strong> if parcels.csv is in the repo<br>
+                    Or upload a CSV file manually
                 </p>
                 <div class="file-input-wrapper">
                     <button>Choose CSV File</button>
@@ -662,6 +662,34 @@
         ['dragleave', 'drop'].forEach(e => uploadSection.addEventListener(e, () => uploadSection.classList.remove('dragover')));
         uploadSection.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
         fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+        
+        // Auto-load CSV from same directory
+        async function autoLoadCSV() {
+            try {
+                updateStatus('Loading parcel data...', 'loading', 5);
+                
+                // Try to fetch parcels.csv from same directory
+                const response = await fetch('parcels.csv');
+                
+                if (!response.ok) {
+                    throw new Error('parcels.csv not found - please upload manually');
+                }
+                
+                const text = await response.text();
+                
+                document.getElementById('fileList').innerHTML = `<div class="file-item">parcels.csv (auto-loaded)</div>`;
+                uploadSection.classList.add('has-files');
+                
+                await parseCSV(text);
+                
+            } catch (err) {
+                console.log('Auto-load failed, waiting for manual upload:', err.message);
+                updateStatus('Upload CSV or add parcels.csv to repo', 'ready', 0);
+            }
+        }
+        
+        // Try auto-load on page load
+        autoLoadCSV();
         
         async function handleFile(file) {
             if (!file) return;
